@@ -29,6 +29,14 @@ tmux send-keys -t "$PANE" Enter
 
 Always panes, never windows: the user watches agents working live in the split view.
 
+For repo tasks, isolate with a git worktree so parallel agents never collide in one checkout:
+
+```bash
+git -C <repo> worktree add -b <slug> <repo>/../.wt/<slug>   # then use that path as the -c value
+```
+
+Worktrees live in `<repo>/../.wt/`, one hidden sister dir holding all of them.
+
 ## Awareness: what is everyone doing?
 
 ```bash
@@ -59,4 +67,5 @@ Exits 0 on first match, 1 on timeout. Use before sending follow-up input. The us
 
 - A task is done when its inbox file has a DONE line (with review evidence).
 - Then: `tmux kill-pane -t <pane-id>`.
+- If spawned with a worktree, remove it: `git -C <repo> worktree remove <repo>/../.wt/<slug>`.
 - Never kill a pane whose inbox has no DONE line. Never kill the user's own panes.
