@@ -56,6 +56,14 @@ git -C <repo> worktree add -b <slug> <repo>/../.wt/<slug>   # then use that path
 
 Worktrees live in `<repo>/../.wt/`, one hidden sister dir holding all of them.
 
+## Rename a pane
+
+```bash
+tmux select-pane -t "<pane-id>" -T "<slug>"
+```
+
+Only on panes you spawned. Rename only to restore your own slug after the program inside clobbered it. Never retitle a pane to a different task, and never touch a pane of unknown origin.
+
 ## Awareness: what is everyone doing?
 
 ```bash
