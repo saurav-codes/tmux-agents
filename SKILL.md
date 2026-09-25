@@ -48,7 +48,7 @@ tmux send-keys -t "$PANE" -l -- 'grok "Execute handoff: ~/Developer/AI-Company/h
 tmux send-keys -t "$PANE" Enter
 ```
 
-For repo tasks, isolate with a git worktree so parallel agents never collide in one checkout:
+For repo tasks, isolate with a git worktree so parallel agents never collide in one checkout (user trigger: "work in a separate worktree"):
 
 ```bash
 git -C <repo> worktree add -b <slug> <repo>/../.wt/<slug>   # then use that path as the -c value
