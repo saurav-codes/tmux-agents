@@ -7,6 +7,15 @@ description: "Coordinate parallel coding agents as panes in the user's own tmux 
 
 Parallel agents are tmux panes in a dedicated `agents` session on the user's default tmux server, all in one tiled window so the user can watch every agent in real time. No private sockets, no `-f /dev/null`, no extra tools.
 
+## Ownership, the hard rule
+
+The user runs their own panes and windows in this session too: brainstorming, research, their orchestrator sessions. An agent typing into one destroys live work, and it has happened.
+
+- Touch only panes that are agent-created: the pane your own `split-window` printed this session, or a pane id recorded in a handoff/inbox file.
+- A pane or window created by the human is off-limits: never `send-keys`, `kill-pane`, `swap-pane`, `resize-pane`, or retitle it, no matter how idle it looks.
+- Unknown or ambiguous target: spawn a fresh pane. Never guess, never reuse a pane you merely found.
+- `agents:work` belongs to this workflow, the spawn recipe below creates it. Other windows in the session are the user's, leave them alone.
+
 ## Naming, every task
 
 - Task slug: kebab-case, derived from the task ("auth refactor" = `auth-refactor`).
