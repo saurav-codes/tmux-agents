@@ -20,10 +20,10 @@ The user runs their own panes and windows in this session too: brainstorming, re
 
 - Task slug: kebab-case, derived from the task ("auth refactor" = `auth-refactor`).
 - Pane title = task slug: `auth-refactor`. Second agent on the same task: `auth-refactor-2`.
-- Record each agent's pane id (printed at spawn, like `%24`) in the handoff; target panes by pane id, never by index.
+- Record each agent's pane id in the handoff as a `pane: %24` line. The pane id is the only durable identity of a pane; target panes by that id only, never by index, title, session, or window.
 - Status file: `~/Developer/AI-Company/inbox/<slug>.md`, existing STATUS/DONE protocol.
 
-Pane titles are the source of truth for who is busy. Set them right at spawn, never rename mid-task.
+Titles are labels for humans, not identity. The program running in a pane overwrites the title with its own while it runs (grok sets a spinner and task name, zsh sets the hostname), so never find or target a pane by title.
 
 ## Spawn
 
@@ -62,7 +62,7 @@ tmux send-keys -t <pane-id> -l -- "text of the prompt"
 tmux send-keys -t <pane-id> Enter
 ```
 
-Always `-l` (literal), never let the shell mangle the text.
+Always `-l` (literal), never let the shell mangle the text. The pane id must be your own spawn's or the one recorded in that task's handoff file; a wrong target is someone's live session.
 
 ## Wait for output
 
@@ -75,6 +75,6 @@ Exits 0 on first match, 1 on timeout. Use before sending follow-up input. The us
 ## Cleanup
 
 - A task is done when its inbox file has a DONE line (with review evidence).
-- Then: `tmux kill-pane -t <pane-id>`.
+- Then: `tmux kill-pane -t <pane-id>` (the id recorded in the handoff, nothing else).
 - If spawned with a worktree, remove it: `git -C <repo> worktree remove <repo>/../.wt/<slug>`.
 - Never kill a pane whose inbox has no DONE line. Never kill the user's own panes.
