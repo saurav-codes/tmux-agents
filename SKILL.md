@@ -5,7 +5,7 @@ description: "Coordinate parallel coding agents as panes in the user's own tmux 
 
 # tmux agents
 
-Parallel agents are tmux panes in a dedicated `agents` session on the user's default tmux server, all in one tiled window so the user can watch every agent in real time. No private sockets, no `-f /dev/null`, no extra tools.
+Parallel agents are tmux panes in a dedicated `agents` session on the user's default tmux server, all in one tiled `work` window so the user can watch every agent in real time. No private sockets, no `-f /dev/null`, no extra tools.
 
 ## Ownership, the hard rule
 
@@ -27,16 +27,26 @@ Titles are labels for humans, not identity. The program running in a pane overwr
 
 ## Spawn
 
+One fresh pane per handoff, always `split-window`, never `new-window` (the user watches agents live in the split view):
+
 ```bash
 tmux has-session -t agents || tmux new-session -d -s agents -n work
-PANE=$(tmux split-window -t agents:work -c <task-cwd> -P -F '#{pane_id}')
-tmux select-pane -t "$PANE" -T <slug>
+tmux list-windows -t agents -F '#{window_name}' | grep -qx work || tmux new-window -d -t agents -n work
+PANE=$(tmux split-window -t agents:work -c "<task-cwd>" -P -F '#{pane_id}')
+[ -n "$PANE" ] || { echo 'spawn failed, no pane id' >&2; exit 1; }
+tmux select-pane -t "$PANE" -T "<slug>"
 tmux select-layout -t agents:work tiled
+```
+
+The window-ensure line and the id guard both matter. If `agents` exists without a `work` window, `split-window -t agents:work` fails, `$PANE` comes up empty, and every later `send-keys -t "$PANE"` silently lands in the active pane, which is usually the user's own. The same happens with session or window targets like `-t agents` or `-t agents:work`: they resolve to the active pane. Pane ids only.
+
+A fresh pane needs a moment before its shell draws the prompt. Wait for it, then send:
+
+```bash
+~/.grok/skills/tmux-agents/scripts/wait-for-text.sh -t "$PANE" -p '❯' -T 10
 tmux send-keys -t "$PANE" -l -- 'grok "Execute handoff: ~/Developer/AI-Company/handoffs/<slug>.md"'
 tmux send-keys -t "$PANE" Enter
 ```
-
-Always panes, never windows: the user watches agents working live in the split view.
 
 For repo tasks, isolate with a git worktree so parallel agents never collide in one checkout:
 
