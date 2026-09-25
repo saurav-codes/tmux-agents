@@ -67,11 +67,11 @@ Only on panes you spawned. Rename only to restore your own slug after the progra
 ## Awareness: what is everyone doing?
 
 ```bash
-tmux list-panes -t agents:work -F '#{pane_id} #{pane_title} [#{pane_current_command}]'
+tmux list-panes -a -F '#{session_name}:#{window_index}.#{window_name} #{pane_id} #{pane_title} [#{pane_current_command}]' | grep '^agents:'
 tmux capture-pane -p -J -t <pane-id> -S -80 | tail -40
 ```
 
-Run the first line before every handoff and whenever the user asks what other agents are doing. Run the second to read one agent's latest output. Report findings, do not just say "checked".
+Run the first line before every handoff and whenever the user asks what other agents are doing. It lists every pane in the agents session, across every window: agent panes live in `work`, but the user's own sessions and hand-spawned agents run in other windows. Never narrow the target: `-t agents:work` errors with `can't find window: work` until a recipe spawn creates that window, and `-t agents` lists only the active window. Titles in that list usually come from the CLI running in the pane, not the slug, so match agents by the pane id in their handoff file. Run the second to read one agent's latest output. Report findings, do not just say "checked".
 
 ## Talk to an agent
 
