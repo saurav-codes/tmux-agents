@@ -1,98 +1,85 @@
 ---
 name: tmux-agents
-description: "Coordinate parallel coding agents as panes in the user's own tmux server (separate `agents` session, one tiled split view): spawn per-task agent panes, read what every agent is doing, send them prompts, wait for their output, and clean up. Use when the user wants work delegated to tmux agent panes, asks what other agent panes are doing, or wants the AI-company flow without extra tools."
+description: "Coordinate parallel coding agents as panes in the user's own tmux server (separate `agents` session, one tiled `work` window): spawn per-task agent panes, read what every agent is doing, send them prompts, wait for their output, log and debug them, and clean up. Use when the user wants work delegated to tmux agent panes, asks what other agent panes are doing, runs a large multi-agent debugging session, or wants the AI-company flow without extra tools."
 ---
 
 # tmux agents
 
-Parallel agents are tmux panes in a dedicated `agents` session on the user's default tmux server, all in one tiled `work` window so the user can watch every agent in real time. No private sockets, no `-f /dev/null`, no extra tools.
+Agents are panes in the `agents` session on the user's default tmux server, tiled in one `work` window so the user watches them live. Scripts live in `scripts/` next to this file. Examples use `$SKILL` for this skill's directory.
 
 ## Ownership, the hard rule
 
-The user runs their own panes and windows in this session too: brainstorming, research, their orchestrator sessions. An agent typing into one destroys live work, and it has happened.
+The user runs their own panes in this session too. Typing into one destroys live work, and it has happened.
 
-- Touch only panes that are agent-created: the pane your own `split-window` printed this session, or a pane id recorded in a handoff/inbox file.
-- A pane or window created by the human is off-limits: never `send-keys`, `kill-pane`, `swap-pane`, `resize-pane`, or retitle it, no matter how idle it looks.
-- Unknown or ambiguous target: spawn a fresh pane. Never guess, never reuse a pane you merely found.
-- `agents:work` belongs to this workflow, the spawn recipe below creates it. Other windows in the session are the user's, leave them alone.
-
-## Naming, every task
-
-- Task slug: kebab-case, derived from the task ("auth refactor" = `auth-refactor`).
-- Pane title = task slug: `auth-refactor`. Second agent on the same task: `auth-refactor-2`.
-- Record each agent's pane id in the handoff as a `pane: %24` line. The pane id is the only durable identity of a pane; target panes by that id only, never by index, title, session, or window.
-- Status file: `~/Developer/AI-Company/inbox/<slug>.md`, existing STATUS/DONE protocol.
-
-Titles are labels for humans, not identity. The program running in a pane overwrites the title with its own while it runs (grok sets a spinner and task name, zsh sets the hostname), so never find or target a pane by title.
+- An agent pane is one you spawned this session or one whose id is recorded in a handoff file. Every agent pane carries the `@agent` pane option; a pane without it is the user's.
+- Never `send-keys`, `kill-pane`, `respawn-pane`, `resize-pane`, `swap-pane` or retitle a pane that isn't yours, no matter how idle it looks.
+- Unsure about a target: spawn a fresh pane. Never reuse a pane you merely found.
+- Target panes by id (`%24`) only. Session or window targets like `-t agents` resolve to the active pane, which is usually the user's.
 
 ## Spawn
 
-One fresh pane per handoff, always `split-window`, never `new-window` (the user watches agents live in the split view):
-
 ```bash
-tmux has-session -t agents || tmux new-session -d -s agents -n work
+tmux has-session -t agents 2>/dev/null || tmux new-session -d -s agents -n work
 tmux list-windows -t agents -F '#{window_name}' | grep -qx work || tmux new-window -d -t agents -n work
-PANE=$(tmux split-window -t agents:work -c "<task-cwd>" -P -F '#{pane_id}')
+PANE=$(tmux split-window -d -t agents:work -c "<task-cwd>" -P -F '#{pane_id}')
 [ -n "$PANE" ] || { echo 'spawn failed, no pane id' >&2; exit 1; }
+tmux set -p -t "$PANE" @agent "<slug>"           # durable identity, survives respawn
+tmux set -p -t "$PANE" remain-on-exit on          # keep output if the agent crashes
 tmux select-pane -t "$PANE" -T "<slug>"
 tmux select-layout -t agents:work tiled
+mkdir -p /tmp/agents && tmux pipe-pane -o -t "$PANE" "cat >> /tmp/agents/<slug>.log"
 ```
 
-The window-ensure line and the id guard both matter. If `agents` exists without a `work` window, `split-window -t agents:work` fails, `$PANE` comes up empty, and every later `send-keys -t "$PANE"` silently lands in the active pane, which is usually the user's own. The same happens with session or window targets like `-t agents` or `-t agents:work`: they resolve to the active pane. Pane ids only.
+- Slug: kebab-case from the task (`auth-refactor`, then `auth-refactor-2`). Record `pane: %24` in the handoff.
+- Titles are for humans only. The program inside overwrites them, so find agents by `@agent` or pane id.
+- Repo tasks get their own worktree so agents never share a checkout: `git -C <repo> worktree add -b <slug> <repo>/../.wt/<slug>`, then spawn with that path as `-c`.
 
-A fresh pane needs a moment before its shell draws the prompt. Wait for it, then send:
+Wait for the shell prompt, then start the agent:
 
 ```bash
-~/.grok/skills/tmux-agents/scripts/wait-for-text.sh -t "$PANE" -p '❯' -T 10
+$SKILL/scripts/wait-for-text.sh -t "$PANE" -p '❯' -T 10
 tmux send-keys -t "$PANE" -l -- 'grok "Execute handoff: ~/Developer/AI-Company/handoffs/<slug>.md"'
 tmux send-keys -t "$PANE" Enter
 ```
 
-For repo tasks, isolate with a git worktree so parallel agents never collide in one checkout (user trigger: "work in a separate worktree"):
+## Awareness
 
 ```bash
-git -C <repo> worktree add -b <slug> <repo>/../.wt/<slug>   # then use that path as the -c value
+$SKILL/scripts/snapshot.sh 30          # every agent pane: id, slug, command, dead/alive, last 30 lines
+tmux list-panes -a -F '#{session_name}:#{window_name} #{pane_id} @agent=#{@agent} [#{pane_current_command}] dead=#{pane_dead}' | grep '^agents:'
 ```
 
-Worktrees live in `<repo>/../.wt/`, one hidden sister dir holding all of them.
+Run one before every handoff and whenever the user asks what agents are doing. Report findings, not just "checked".
 
-## Rename a pane
+## Talk, interrupt, wait
 
 ```bash
-tmux select-pane -t "<pane-id>" -T "<slug>"
+tmux send-keys -t <pane-id> -l -- "prompt text"; tmux send-keys -t <pane-id> Enter   # always -l
+tmux send-keys -t <pane-id> Escape          # stop the agent's current turn (C-c to kill a shell command)
+$SKILL/scripts/wait-for-text.sh -t <pane-id> -p 'pattern' [-F] [-T 60]           # 0 on match, 1 on timeout
 ```
 
-Only on panes you spawned. Rename only to restore your own slug after the program inside clobbered it. Never retitle a pane to a different task, and never touch a pane of unknown origin.
+`tmux wait-for` does not watch output. It is a signal channel: tell an agent to finish with `tmux wait-for -S <slug>-done`, and the lead blocks on `tmux wait-for <slug>-done`. Run that in the background or behind a timeout, since it never returns if the agent forgets to signal.
 
-## Awareness: what is everyone doing?
+## Debugging sessions
 
-```bash
-tmux list-panes -a -F '#{session_name}:#{window_index}.#{window_name} #{pane_id} #{pane_title} [#{pane_current_command}]' | grep '^agents:'
-tmux capture-pane -p -J -t <pane-id> -S -80 | tail -40
-```
+For many agents or long runs, keep evidence outside the scrollback:
 
-Run the first line before every handoff and whenever the user asks what other agents are doing. It lists every pane in the agents session, across every window: agent panes live in `work`, but the user's own sessions and hand-spawned agents run in other windows. Never narrow the target: `-t agents:work` errors with `can't find window: work` until a recipe spawn creates that window, and `-t agents` lists only the active window. Titles in that list usually come from the CLI running in the pane, not the slug, so match agents by the pane id in their handoff file. Run the second to read one agent's latest output. Report findings, do not just say "checked".
+| Need | Command |
+|---|---|
+| Full history of one pane | `tmux capture-pane -p -J -t <id> -S - > /tmp/agents/<slug>.txt` |
+| Live log (started at spawn) | `tail -f /tmp/agents/<slug>.log`, raw with colors; use `capture-pane` for clean text |
+| Grep every agent at once | `$SKILL/scripts/snapshot.sh 2000 \| grep -n -E 'error\|panic\|FAIL'` |
+| Did it crash, and how | `tmux display -p -t <id> 'dead=#{pane_dead} status=#{pane_dead_status}'` |
+| Restart a crashed agent in place | `tmux respawn-pane -k -t <id> -c <cwd>`; `@agent` and logging survive |
+| Focus one pane | `tmux resize-pane -Z -t <id>` (toggle zoom), or `break-pane -d -s <id>` to give it a window |
+| Its process tree | `pgrep -lP $(tmux display -p -t <id> '#{pane_pid}')` |
+| Fresh scrollback before a rerun | `tmux clear-history -t <id>` |
 
-## Talk to an agent
-
-```bash
-tmux send-keys -t <pane-id> -l -- "text of the prompt"
-tmux send-keys -t <pane-id> Enter
-```
-
-Always `-l` (literal), never let the shell mangle the text. The pane id must be your own spawn's or the one recorded in that task's handoff file; a wrong target is someone's live session.
-
-## Wait for output
-
-```bash
-~/.grok/skills/tmux-agents/scripts/wait-for-text.sh -t <pane-id> -p 'pattern' [-F] [-T 20] [-i 0.5] [-l 2000]
-```
-
-Exits 0 on first match, 1 on timeout. Use before sending follow-up input. The user's shell prompt ends with `❯` (starship), wait for that to know a pane is idle. `tmux wait-for` does NOT watch pane output, never use it for that.
+Never use `synchronize-panes`: one keystroke would land in every pane, including the user's.
 
 ## Cleanup
 
-- A task is done when its inbox file has a DONE line (with review evidence).
-- Then: `tmux kill-pane -t <pane-id>` (the id recorded in the handoff, nothing else).
-- If spawned with a worktree, remove it: `git -C <repo> worktree remove <repo>/../.wt/<slug>`.
-- Never kill a pane whose inbox has no DONE line. Never kill the user's own panes.
+- A task is done when its inbox file (`~/Developer/AI-Company/inbox/<slug>.md`) has a DONE line with review evidence. Never kill a pane before that.
+- `tmux kill-pane -t <id>` with the id from the handoff, then `git -C <repo> worktree remove <repo>/../.wt/<slug>` if one was made.
+- Keep `/tmp/agents/<slug>.log` until the user has what they need.
