@@ -1,6 +1,6 @@
 ---
 name: tmux-agents
-description: "Coordinate parallel coding agents as panes in the user's own tmux server (separate `agents` session, one tiled `work` window): spawn per-task agent panes, read what every agent is doing, send them prompts, wait for their output, log and debug them, and clean up. Use when the user wants work delegated to tmux agent panes, asks what other agent panes are doing, runs a large multi-agent debugging session, or wants the AI-company flow without extra tools."
+description: "Coordinate parallel coding agents as panes in the user's own tmux server (separate `agents` session, one tiled `work` window): spawn per-task agent panes, read what every agent is doing, send them prompts, wait for their output, log and debug them, and clean up. Use when the user wants work delegated to tmux agent panes, asks what other agent panes are doing, or runs a large multi-agent debugging session."
 ---
 
 # tmux agents
@@ -11,7 +11,7 @@ Agents are panes in the `agents` session on the user's default tmux server, tile
 
 The user runs their own panes in this session too. Typing into one destroys live work, and it has happened.
 
-- An agent pane is one you spawned this session or one whose id is recorded in a handoff file. Every agent pane carries the `@agent` pane option; a pane without it is the user's.
+- An agent pane is one spawned with the recipe below, so it carries the `@agent` pane option. A pane without it is the user's.
 - Never `send-keys`, `kill-pane`, `respawn-pane`, `resize-pane`, `swap-pane` or retitle a pane that isn't yours, no matter how idle it looks.
 - Unsure about a target: spawn a fresh pane. Never reuse a pane you merely found.
 - Target panes by id (`%24`) only. Session or window targets like `-t agents` resolve to the active pane, which is usually the user's.
@@ -30,7 +30,7 @@ tmux select-layout -t agents:work tiled
 mkdir -p /tmp/agents && tmux pipe-pane -o -t "$PANE" "cat >> /tmp/agents/<slug>.log"
 ```
 
-- Slug: kebab-case from the task (`auth-refactor`, then `auth-refactor-2`). Record `pane: %24` in the handoff.
+- Slug: kebab-case from the task (`auth-refactor`, then `auth-refactor-2`). Keep the pane id you got back.
 - Titles are for humans only. The program inside overwrites them, so find agents by `@agent` or pane id.
 - Repo tasks get their own worktree so agents never share a checkout: `git -C <repo> worktree add -b <slug> <repo>/../.wt/<slug>`, then spawn with that path as `-c`.
 
@@ -38,7 +38,7 @@ Wait for the shell prompt, then start the agent:
 
 ```bash
 $SKILL/scripts/wait-for-text.sh -t "$PANE" -p '❯' -T 10
-tmux send-keys -t "$PANE" -l -- 'grok "Execute handoff: ~/Developer/AI-Company/handoffs/<slug>.md"'
+tmux send-keys -t "$PANE" -l -- 'grok "<task prompt>"'
 tmux send-keys -t "$PANE" Enter
 ```
 
@@ -49,7 +49,7 @@ $SKILL/scripts/snapshot.sh 30          # every agent pane: id, slug, command, de
 tmux list-panes -a -F '#{session_name}:#{window_name} #{pane_id} @agent=#{@agent} [#{pane_current_command}] dead=#{pane_dead}' | grep '^agents:'
 ```
 
-Run one before every handoff and whenever the user asks what agents are doing. Report findings, not just "checked".
+Run one before spawning and whenever the user asks what agents are doing. Report findings, not just "checked".
 
 ## Talk, interrupt, wait
 
@@ -80,6 +80,6 @@ Never use `synchronize-panes`: one keystroke would land in every pane, including
 
 ## Cleanup
 
-- A task is done when its inbox file (`~/Developer/AI-Company/inbox/<slug>.md`) has a DONE line with review evidence. Never kill a pane before that.
-- `tmux kill-pane -t <id>` with the id from the handoff, then `git -C <repo> worktree remove <repo>/../.wt/<slug>` if one was made.
+- Kill a pane only after its agent has finished and you have its result. Never kill a pane that lacks `@agent`.
+- `tmux kill-pane -t <id>`, then `git -C <repo> worktree remove <repo>/../.wt/<slug>` if one was made.
 - Keep `/tmp/agents/<slug>.log` until the user has what they need.
